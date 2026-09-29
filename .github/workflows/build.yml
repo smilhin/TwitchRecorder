@@ -31,7 +31,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Build
-        run: pyinstaller --onefile --name twitch-recorder listener.py
+        run: pyinstaller --onefile --name twitch-recorder main.py
 
       - name: Upload
         uses: actions/upload-artifact@v4
