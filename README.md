@@ -1,29 +1,31 @@
 # TwitchRecorder
 
-A small Python script that automatically records a Twitch channel when it goes live.
+A simple Python script that automatically records a Twitch channel when it goes live.
 
-The script periodically checks the channel using the Twitch Helix API. When the channel goes live, it obtains the HLS stream playlist, selects the requested quality, and starts downloading the stream segments until the stream ends.
+The script periodically checks the channel using the Twitch Helix API. When the channel goes live, it obtains the HLS stream playlist, selects the requested quality, and downloads the stream segments until the stream ends.
 
-Recordings are saved locally and are converted from `.ts` to `.mp4` by default.
+Recordings are saved as `.ts` files and are automatically remuxed to `.mp4` when `ffmpeg` is available.
 
 ## Features
 
-* Automatically waits for a Twitch channel to go live
-* Records the stream until it ends
+* Automatically monitors a Twitch channel
+* Starts recording when the channel goes live
 * Supports different video qualities
-* Can skip Twitch stitched ad segments
-* Saves recordings in separate folders for each channel
+* Supports audio-only streams
+* Skips Twitch stitched ad segments when possible
+* Saves recordings in a separate directory for each channel
 * Remuxes recordings to `.mp4` without re-encoding
-* Handles temporary API and playlist failures
-* Keeps track of HLS segments to avoid downloading the same segment twice
+* Retries failed segment downloads
+* Refreshes the HLS playlist URL when necessary
+* Keeps track of HLS media sequence numbers to avoid downloading the same segment twice
 
 ## Requirements
 
-* Python 3.9 or newer
-* `ffmpeg`
+* Python 3.10 or newer
+* `ffmpeg` (optional, required for automatic `.mp4` output)
 * A Twitch application with a Client ID and Client Secret
 
-The Python dependencies are:
+Python dependencies:
 
 ```text
 requests
@@ -45,7 +47,7 @@ Install the Python dependencies:
 pip install -r requirements.txt
 ```
 
-Make sure `ffmpeg` is installed and available in your `PATH`.
+If you want recordings to be converted to `.mp4`, install `ffmpeg` and make sure it is available in your `PATH`.
 
 You can check it with:
 
@@ -53,29 +55,31 @@ You can check it with:
 ffmpeg -version
 ```
 
+If `ffmpeg` is not available, the recorder will keep the original `.ts` recording instead.
+
 ## Twitch Application
 
-The recorder uses the Twitch API to check whether the channel is live, so you need to create a Twitch application.
+The recorder uses the Twitch Helix API to check whether the channel is live.
 
-Go to:
+Create a Twitch application from the Twitch Developer Console:
 
 https://dev.twitch.tv/console
 
-Log in with your Twitch account and create a new application.
+Your Twitch account must have two-factor authentication enabled in order to register an application.
 
-Use the following settings:
+When creating the application, use:
 
 * OAuth Redirect URL: `http://localhost`
 * Client Type: `Confidential`
 * Category: `Application Integration` or `Other`
 
-After creating the application, open it and copy the Client ID. Generate a Client Secret as well.
+After creating the application, open it in the Developer Console and copy the Client ID.
 
-Keep the Client Secret private.
+Generate a Client Secret using `New Secret` and keep it private.
 
 ## Configuration
 
-Create a `.env` file in the project directory.
+Create an `.env` file in the same folder as the script.
 
 You can use `.env-template` as a starting point:
 
@@ -104,7 +108,11 @@ VIDEO_QUALITY=best
 * A quality name such as `720p`
 * A quality name such as `720p60`
 
-If the requested quality is not available, the recorder falls back to the best available quality.
+`best` and `source` select the available video variant with the highest bandwidth.
+
+`worst` selects the available video variant with the lowest bandwidth.
+
+For a specific quality name, the recorder first tries an exact match and then a matching prefix. If the requested quality is not available, it falls back to `best`.
 
 ## Usage
 
@@ -114,7 +122,9 @@ Start the recorder with:
 python main.py
 ```
 
-The script will keep running and check the configured channel periodically.
+The script will continue running and monitor the configured channel.
+
+While the channel is offline, it checks the Twitch API every 30 seconds.
 
 When the channel goes live, recording starts automatically.
 
@@ -134,52 +144,108 @@ recordings/
 
 The timestamp in the filename is the time when the recording started.
 
-By default, the recorder first writes a `.ts` file and then remuxes it to `.mp4` using `ffmpeg`.
+The recorder initially writes the stream to a `.ts` file.
 
-The remux uses stream copy, so the video and audio are not re-encoded.
+If `ffmpeg` is available, the `.ts` file is remuxed to `.mp4` using stream copy:
+
+```text
+-c copy
+```
+
+This means the audio and video streams are not re-encoded.
+
+The `.ts` file is removed after a successful remux.
 
 If `ffmpeg` is unavailable or the remux fails, the `.ts` file is kept instead.
 
+## How it works
+
+The recording process is roughly:
+
+```text
+Twitch Helix API
+       |
+       v
+Check if channel is live
+       |
+       v
+Request Twitch playback access token
+       |
+       v
+Request HLS master playlist
+       |
+       v
+Select requested quality
+       |
+       v
+Download new HLS segments
+       |
+       v
+Stream ends
+       |
+       v
+Remux .ts -> .mp4
+```
+
+The recorder uses Twitch's web player's GraphQL endpoint to obtain a playback access token and then requests the HLS playlist from Twitch's streaming infrastructure.
+
+The HLS code parses Twitch master and media playlists, handles media sequence numbers and program date/time information, and detects Twitch ad markers.
+
 ## Ads
 
-The recorder detects Twitch stitched ad segments and skips them by default.
+The recorder can skip Twitch stitched ad segments.
 
-This is based on the ad markers present in the HLS playlist. It is not a guarantee that every type of advertisement will always be detected or removed.
+It identifies ad ranges using Twitch-specific HLS `DATERANGE` markers and does not download segments that fall within those ranges.
+
+This depends on the ad markers provided by Twitch, so it is not guaranteed to detect every possible type of advertisement.
+
+## Error handling
+
+The recorder retries failed segment downloads up to three times.
+
+If fetching the media playlist fails, it retries the request. After every three consecutive playlist failures, it attempts to obtain a fresh playlist URL.
+
+After 15 consecutive playlist failures, the recorder assumes that the stream has ended.
+
+The main Twitch API polling loop also retries API errors using an increasing delay, up to 10 minutes.
 
 ## Limitations
 
-This project relies partly on Twitch's internal web-player GraphQL endpoint to obtain the playback access token.
+The recorder uses an internal GraphQL endpoint and client ID from the Twitch web player to obtain the playback access token.
 
-That endpoint is not part of Twitch's official public API and can change without notice. If Twitch changes its web player or HLS infrastructure, the recorder may stop working until the implementation is updated.
+This endpoint is not part of Twitch's official public API and may change without notice. Changes to Twitch's web player or streaming infrastructure may therefore break the recorder.
 
-The recorder also depends on the stream being available as an HLS stream.
+The recorder also depends on Twitch's HLS stream being available.
 
-Network interruptions can result in missing segments. The recorder retries failed segment downloads, but it cannot recover segments that are no longer available from Twitch.
+Network problems can result in missing stream segments. Failed segment downloads are retried, but segments that are no longer available cannot be recovered.
 
 ## Project structure
 
 ```text
 TwitchRecorder/
-├── main.py
-├── recorder.py
-├── hls.py
-├── requirements.txt
+├── .github/
+│   └── workflows/
 ├── .env-template
 ├── .gitignore
-└── LICENSE
+├── LICENSE
+├── README.md
+├── hls.py
+├── main.py
+├── recorder.py
+└── requirements.txt
 ```
 
 ### `main.py`
 
-Monitors the configured Twitch channel and starts the recorder when the channel goes live.
+Monitors the configured Twitch channel using the Twitch Helix API and starts a recording when the channel goes live.
 
 ### `recorder.py`
 
-Handles playback access tokens, HLS playlist retrieval, segment downloading, ad skipping, and finalizing recordings.
+Handles playback access tokens, HLS playlist retrieval, quality selection, segment downloading, ad skipping, error handling, and finalizing recordings.
 
 ### `hls.py`
 
-Contains the HLS playlist parser and video quality selection logic.
+Contains the Twitch HLS master and media playlist parser and the video quality selection logic.
 
 ## License
 
