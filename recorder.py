@@ -21,7 +21,6 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from mypy.types_utils import NoneType
 
 import hls
 from hls import Variant
@@ -50,7 +49,9 @@ query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: I
 }
 """
 
-MAX_PLAYLIST_FAILURES = 15  # consecutive failed playlist fetches before we give up
+MAX_PLAYLIST_FAILURES = (
+    15  # consecutive failed playlist fetches before the app gives up
+)
 
 
 class StreamOffline(Exception):
@@ -77,7 +78,7 @@ def get_access_token(session: requests.Session, channel: str) -> tuple[str, str]
         GQL_URL,
         json=payload,
         headers={"Client-ID": GQL_CLIENT_ID},
-        timeout=10,  # type: ignore
+        timeout=10,
     )
     r.raise_for_status()
     body = r.json()
@@ -96,7 +97,7 @@ def get_master_playlist(session: requests.Session, channel: str) -> tuple[str, s
     token, signature = get_access_token(session, channel)
     r = session.get(
         USHER_URL.format(channel=channel),
-        params={  # type: ignore
+        params={
             "sig": signature,
             "token": token,
             "allow_source": "true",
@@ -171,6 +172,8 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
             "-y",
             "-loglevel",
             "error",
+            "-dts_delta_threshold",
+            "1",
             "-i",
             str(ts_path),
             "-c",
@@ -217,13 +220,13 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    mp4frag_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"  # type: ignore
+    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"  # noqa
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,
         variant.name,
         variant.resolution or "audio",
-        ts_path,
+        mp4frag_path,
     )
 
     playlist_url = variant.url
