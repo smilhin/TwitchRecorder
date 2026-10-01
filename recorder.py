@@ -6,7 +6,7 @@ Flow:
   2. Request the master playlist from usher.ttvnw.net with that token.
   3. Parse it, pick a quality, get the URL of that quality's media playlist.
   4. Loop: re-fetch the media playlist, download every segment we haven't seen
-     yet, append it to one .ts file. Stop when the stream ends.
+     yet, append it to one .mp4frag file. Stop when the stream ends.
 
 NOTE: the GQL endpoint and its client ID are Twitch's own web player internals,
 not an official API. They can change without notice.
@@ -21,7 +21,6 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from mypy.types_utils import NoneType
 
 import hls
 from hls import Variant
@@ -50,7 +49,9 @@ query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: I
 }
 """
 
-MAX_PLAYLIST_FAILURES = 15  # consecutive failed playlist fetches before we give up
+MAX_PLAYLIST_FAILURES = (
+    15  # consecutive failed playlist fetches before the app gives up
+)
 
 
 class StreamOffline(Exception):
@@ -77,7 +78,7 @@ def get_access_token(session: requests.Session, channel: str) -> tuple[str, str]
         GQL_URL,
         json=payload,
         headers={"Client-ID": GQL_CLIENT_ID},
-        timeout=10,  # type: ignore
+        timeout=10,
     )
     r.raise_for_status()
     body = r.json()
@@ -96,7 +97,7 @@ def get_master_playlist(session: requests.Session, channel: str) -> tuple[str, s
     token, signature = get_access_token(session, channel)
     r = session.get(
         USHER_URL.format(channel=channel),
-        params={  # type: ignore
+        params={
             "sig": signature,
             "token": token,
             "allow_source": "true",
@@ -150,20 +151,20 @@ def download_segment(
     return False
 
 
-def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
-    """Delete empty recordings, optionally remux .ts -> .mp4 (stream copy, no re-encode)."""
-    if not ts_path.exists():
+def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> Path | None:
+    """Delete empty recordings, optionally remux .mp4frag -> .mp4 (stream copy, no re-encode)."""
+    if not mp4frag_path.exists():
         return None
-    if ts_path.stat().st_size == 0:
-        ts_path.unlink()
+    if mp4frag_path.stat().st_size == 0:
+        mp4frag_path.unlink()
         return None
     if not remux:
-        return ts_path
+        return mp4frag_path
     if not shutil.which("ffmpeg"):
-        log.warning("ffmpeg not found, keeping %s", ts_path.name)
-        return ts_path
+        log.warning("ffmpeg not found, keeping %s", mp4frag_path.name)
+        return mp4frag_path
 
-    mp4_path = ts_path.with_suffix(".mp4")
+    mp4_path = mp4frag_path.with_suffix(".mp4")
     log.info("Remuxing to %s", mp4_path.name)
     result = subprocess.run(
         [
@@ -171,8 +172,10 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
             "-y",
             "-loglevel",
             "error",
+            "-dts_delta_threshold",
+            "1",
             "-i",
-            str(ts_path),
+            str(mp4frag_path),
             "-c",
             "copy",
             "-movflags",
@@ -182,11 +185,11 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
         check=False,
     )
     if result.returncode != 0:
-        log.warning("Remux failed, keeping %s", ts_path.name)
+        log.warning("Remux failed, keeping %s", mp4frag_path.name)
         mp4_path.unlink(missing_ok=True)
-        return ts_path
-    if not keep_ts:
-        ts_path.unlink()
+        return mp4frag_path
+    if not keep_mp4frag:
+        mp4frag_path.unlink()
     return mp4_path
 
 
@@ -196,7 +199,7 @@ def record_stream(
     output_dir: str | Path = "recordings",
     skip_ads: bool = True,
     remux: bool = True,
-    keep_ts: bool = False,
+    keep_mp4frag: bool = False,
 ) -> Path | None:
     """
     Record a live channel until the stream ends. Blocks. Returns the output path,
@@ -217,23 +220,24 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"  # type: ignore
+    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"  # noqa
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,
         variant.name,
         variant.resolution or "audio",
-        ts_path,
+        mp4frag_path,
     )
 
     playlist_url = variant.url
     last_seq = -1
     failures = 0
     in_ad = False
+    written_init_url: str | None = None
     saved = skipped_ads = lost = 0
 
     try:
-        with open(ts_path, "wb") as out:
+        with open(mp4frag_path, "wb") as out:
             while True:
                 try:
                     r = session.get(playlist_url, timeout=10)
@@ -294,6 +298,17 @@ def record_stream(
                         log.info("Ad break over")
                         in_ad = False
 
+                    if seg.init_url and seg.init_url != written_init_url:
+                        if download_segment(session, seg.init_url, out):
+                            written_init_url = seg.init_url
+                        else:
+                            lost += 1
+                            log.warning(
+                                "Could not fetch init segment, skipping segment %d",
+                                seg.sequence,
+                            )
+                            continue
+
                     if download_segment(session, seg.url, out):
                         saved += 1
                     else:
@@ -312,7 +327,7 @@ def record_stream(
             skipped_ads,
             lost,
         )
-        result = finalize(ts_path, remux, keep_ts)
+        result = finalize(mp4frag_path, remux, keep_mp4frag)
         if result:
             log.info("Saved %s", result)
 
