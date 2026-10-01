@@ -31,7 +31,9 @@ print("""
     """)
 
 if not load_dotenv():
-    print("\033[31mNo env file detected. Please follow the instructions and create one WITH VALID CREDENTIALS\033[0m")
+    print(
+        "\033[31mNo env file detected. Please follow the instructions and create one WITH VALID CREDENTIALS\033[0m"
+    )
     sys.exit(1)
 
 # Global Constants
@@ -118,7 +120,7 @@ def main():
             errors = 0
         except requests.RequestException as e:
             errors += 1
-            delay = min(POLL_INTERVAL * 2 ** errors, 600)
+            delay = min(POLL_INTERVAL * 2**errors, 600)
             print(f"API error: {e}. Retrying in {delay}s")
             time.sleep(delay)
             continue
@@ -130,7 +132,7 @@ def main():
             time.sleep(POLL_INTERVAL)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:

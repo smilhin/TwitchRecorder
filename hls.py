@@ -20,6 +20,7 @@ def _clean_lines(text: str) -> list[str]:
         raise ValueError("not an m3u8 playlist (missing #EXTM3U)")
     return lines
 
+
 @dataclass
 class Variant:
     name: str
@@ -46,7 +47,9 @@ def parse_master(text: str, base_url: str = "") -> list[Variant]:
             group_id = pending.get("VIDEO", "")
             variants.append(
                 Variant(
-                    name=group_names.get(group_id, group_id or pending.get("RESOLUTION", "unknown")),
+                    name=group_names.get(
+                        group_id, group_id or pending.get("RESOLUTION", "unknown")
+                    ),
                     bandwidth=int(pending.get("BANDWIDTH", 0)),
                     resolution=pending.get("RESOLUTION", ""),
                     frame_rate=float(pending.get("FRAME-RATE") or 0),
@@ -86,7 +89,6 @@ def select_variant(variants: list[Variant], quality: str) -> Variant | None:
             return v
     prefix = [v for v in variants if base_name(v).startswith(q)]
     return max(prefix, key=lambda v: v.bandwidth) if prefix else None
-
 
 
 @dataclass
@@ -135,10 +137,12 @@ def parse_media(text: str, base_url: str = "") -> MediaPlaylist:
             attrs = parse_attributes(line.split(":", 1)[1])
             if is_ad_daterange(attrs) and "START-DATE" in attrs:
                 start = parse_time(attrs["START-DATE"])
-                duration = float(attrs.get("DURATION") or attrs.get("PLANNED-DURATION") or 0)
+                duration = float(
+                    attrs.get("DURATION") or attrs.get("PLANNED-DURATION") or 0
+                )
                 ad_ranges.append((start, start + timedelta(seconds=duration)))
         elif line.startswith("#EXTINF:"):
-            pending_duration = float(line[len("#EXTINF:"):].split(",", 1)[0])
+            pending_duration = float(line[len("#EXTINF:") :].split(",", 1)[0])
         elif not line.startswith("#"):
             if pending_duration is None:
                 continue
@@ -151,12 +155,16 @@ def parse_media(text: str, base_url: str = "") -> MediaPlaylist:
                     start_time=start_time,
                 )
             )
-            next_time = start_time + timedelta(seconds=pending_duration) if start_time else None
+            next_time = (
+                start_time + timedelta(seconds=pending_duration) if start_time else None
+            )
             pending_duration = None
             pending_time = None
 
     for seg in playlist.segments:
-        if seg.start_time and any(start <= seg.start_time < end for start, end in ad_ranges):
+        if seg.start_time and any(
+            start <= seg.start_time < end for start, end in ad_ranges
+        ):
             seg.is_ad = True
 
     return playlist
