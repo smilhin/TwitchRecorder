@@ -6,7 +6,7 @@ Flow:
   2. Request the master playlist from usher.ttvnw.net with that token.
   3. Parse it, pick a quality, get the URL of that quality's media playlist.
   4. Loop: re-fetch the media playlist, download every segment we haven't seen
-     yet, append it to one .ts file. Stop when the stream ends.
+     yet, append it to one .mp4frag file. Stop when the stream ends.
 
 NOTE: the GQL endpoint and its client ID are Twitch's own web player internals,
 not an official API. They can change without notice.
@@ -151,7 +151,7 @@ def download_segment(
 
 
 def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
-    """Delete empty recordings, optionally remux .ts -> .mp4 (stream copy, no re-encode)."""
+    """Delete empty recordings, optionally remux .mp4frag -> .mp4 (stream copy, no re-encode)."""
     if not ts_path.exists():
         return None
     if ts_path.stat().st_size == 0:
@@ -196,7 +196,7 @@ def record_stream(
     output_dir: str | Path = "recordings",
     skip_ads: bool = True,
     remux: bool = True,
-    keep_ts: bool = False,
+    keep_mp4frag: bool = False,
 ) -> Path | None:
     """
     Record a live channel until the stream ends. Blocks. Returns the output path,
@@ -217,7 +217,7 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"  # type: ignore
+    mp4frag_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"  # type: ignore
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,
@@ -233,7 +233,7 @@ def record_stream(
     saved = skipped_ads = lost = 0
 
     try:
-        with open(ts_path, "wb") as out:
+        with open(mp4frag_path, "wb") as out:
             while True:
                 try:
                     r = session.get(playlist_url, timeout=10)
@@ -312,7 +312,7 @@ def record_stream(
             skipped_ads,
             lost,
         )
-        result = finalize(ts_path, remux, keep_ts)
+        result = finalize(mp4frag_path, remux, keep_mp4frag)
         if result:
             log.info("Saved %s", result)
 
