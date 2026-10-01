@@ -29,7 +29,9 @@ from hls import Variant
 log = logging.getLogger("recorder")
 
 GQL_URL = "https://gql.twitch.tv/gql"
-GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"  # public client ID of the Twitch web player :)
+GQL_CLIENT_ID = (
+    "kimne78kx3ncx6brgo4mv6wki5h1ko"  # public client ID of the Twitch web player :)
+)
 USHER_URL = "https://usher.ttvnw.net/api/channel/hls/{channel}.m3u8"
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
 
@@ -63,16 +65,26 @@ def get_access_token(session: requests.Session, channel: str) -> tuple[str, str]
     payload = {
         "operationName": "PlaybackAccessToken_Template",
         "query": GQL_QUERY,
-        "variables": {"isLive": True, "login": channel, "isVod": False, "vodID": "", "playerType": "site"},
+        "variables": {
+            "isLive": True,
+            "login": channel,
+            "isVod": False,
+            "vodID": "",
+            "playerType": "site",
+        },
     }
-    r = session.post(GQL_URL, json=payload, headers={"Client-ID": GQL_CLIENT_ID}, timeout=10)
+    r = session.post(
+        GQL_URL, json=payload, headers={"Client-ID": GQL_CLIENT_ID}, timeout=10
+    )
     r.raise_for_status()
     body = r.json()
     if isinstance(body, list):
         body = body[0]
     token = (body.get("data") or {}).get("streamPlaybackAccessToken")
     if not token:
-        raise AccessTokenError(f"no access token in response: {body.get('errors') or body}")
+        raise AccessTokenError(
+            f"no access token in response: {body.get('errors') or body}"
+        )
     return token["value"], token["signature"]
 
 
@@ -101,7 +113,9 @@ def get_master_playlist(session: requests.Session, channel: str) -> tuple[str, s
     return r.text, r.url
 
 
-def resolve_variant(session: requests.Session, channel: str, quality: str) -> Variant | None:
+def resolve_variant(
+    session: requests.Session, channel: str, quality: str
+) -> Variant | None:
     text, url = get_master_playlist(session, channel)
     variants = hls.parse_master(text, url)
     if not variants:
@@ -110,12 +124,16 @@ def resolve_variant(session: requests.Session, channel: str, quality: str) -> Va
     variant = hls.select_variant(variants, quality)
     if variant is None:
         available = ", ".join(v.name for v in variants)
-        log.warning("Quality '%s' not available (have: %s), using best", quality, available)
+        log.warning(
+            "Quality '%s' not available (have: %s), using best", quality, available
+        )
         variant = hls.select_variant(variants, "best")
     return variant
 
 
-def download_segment(session: requests.Session, url: str, out, retries: int = 3) -> bool:
+def download_segment(
+    session: requests.Session, url: str, out, retries: int = 3
+) -> bool:
     for attempt in range(1, retries + 1):
         try:
             r = session.get(url, timeout=10)
@@ -145,8 +163,19 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
     mp4_path = ts_path.with_suffix(".mp4")
     log.info("Remuxing to %s", mp4_path.name)
     result = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(ts_path),
-         "-c", "copy", "-movflags", "+faststart", str(mp4_path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(ts_path),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(mp4_path),
+        ],
         check=False,
     )
     if result.returncode != 0:
@@ -186,7 +215,13 @@ def record_stream(
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
     ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"
-    log.info("Recording %s [%s, %s] -> %s", channel, variant.name, variant.resolution or "audio", ts_path)
+    log.info(
+        "Recording %s [%s, %s] -> %s",
+        channel,
+        variant.name,
+        variant.resolution or "audio",
+        ts_path,
+    )
 
     playlist_url = variant.url
     last_seq = -1
@@ -204,18 +239,29 @@ def record_stream(
                     failures = 0
                 except (requests.RequestException, ValueError) as e:
                     failures += 1
-                    log.warning("Playlist fetch failed (%d/%d): %s", failures, MAX_PLAYLIST_FAILURES, e)
+                    log.warning(
+                        "Playlist fetch failed (%d/%d): %s",
+                        failures,
+                        MAX_PLAYLIST_FAILURES,
+                        e,
+                    )
                     if failures >= MAX_PLAYLIST_FAILURES:
                         log.info("Giving up, assuming the stream ended")
                         break
                     if failures % 3 == 0:
                         try:
-                            playlist_url = resolve_variant(session, channel, quality).url
+                            playlist_url = resolve_variant(
+                                session, channel, quality
+                            ).url
                             log.info("Got a fresh playlist URL")
                         except StreamOffline:
                             log.info("%s went offline", channel)
                             break
-                        except (requests.RequestException, AccessTokenError, ValueError) as e2:
+                        except (
+                            requests.RequestException,
+                            AccessTokenError,
+                            ValueError,
+                        ) as e2:
                             log.warning("Could not refresh playlist URL: %s", e2)
                     time.sleep(1)
                     continue
@@ -229,8 +275,10 @@ def record_stream(
                         continue
                     if last_seq != -1 and seg.sequence > last_seq + 1:
                         lost += seg.sequence - last_seq - 1
-                        log.warning("Missed %d segment(s), fell behind the live edge",
-                                    seg.sequence - last_seq - 1)
+                        log.warning(
+                            "Missed %d segment(s), fell behind the live edge",
+                            seg.sequence - last_seq - 1,
+                        )
                     last_seq = seg.sequence
 
                     if seg.is_ad and skip_ads:
@@ -255,7 +303,12 @@ def record_stream(
 
                 time.sleep(min(max(playlist.target_duration / 2, 0.5), 2.0))
     finally:
-        log.info("Done: %d segments saved, %d ad segments skipped, %d lost", saved, skipped_ads, lost)
+        log.info(
+            "Done: %d segments saved, %d ad segments skipped, %d lost",
+            saved,
+            skipped_ads,
+            lost,
+        )
         result = finalize(ts_path, remux, keep_ts)
         if result:
             log.info("Saved %s", result)
