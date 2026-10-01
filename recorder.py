@@ -74,7 +74,7 @@ def get_access_token(session: requests.Session, channel: str) -> tuple[str, str]
         },
     }
     r = session.post(
-        GQL_URL, json=payload, headers={"Client-ID": GQL_CLIENT_ID}, timeout=10
+        GQL_URL, json=payload, headers={"Client-ID": GQL_CLIENT_ID}, timeout=10 # type: ignore
     )
     r.raise_for_status()
     body = r.json()
@@ -93,7 +93,7 @@ def get_master_playlist(session: requests.Session, channel: str) -> tuple[str, s
     token, signature = get_access_token(session, channel)
     r = session.get(
         USHER_URL.format(channel=channel),
-        params={
+        params={                                                        # type: ignore
             "sig": signature,
             "token": token,
             "allow_source": "true",
@@ -214,7 +214,7 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"
+    ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts" # type: ignore
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,

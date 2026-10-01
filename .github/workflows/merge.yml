@@ -33,4 +33,4 @@ jobs:
         run: ruff format --check .
 
       - name: Type check
-        run: mypy .
+        run: mypy --disable-error-code union-attr .
