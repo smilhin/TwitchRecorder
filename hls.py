@@ -98,6 +98,7 @@ class Segment:
     duration: float
     start_time: datetime | None = None
     is_ad: bool = False
+    init_url: str | None = None
 
 
 @dataclass
@@ -123,6 +124,7 @@ def parse_media(text: str, base_url: str = "") -> MediaPlaylist:
     pending_duration: float | None = None
     pending_time: datetime | None = None
     next_time: datetime | None = None
+    init_url: str | None = None
 
     for line in _clean_lines(text):
         if line.startswith("#EXT-X-MEDIA-SEQUENCE:"):
@@ -133,6 +135,10 @@ def parse_media(text: str, base_url: str = "") -> MediaPlaylist:
             playlist.ended = True
         elif line.startswith("#EXT-X-PROGRAM-DATE-TIME:"):
             pending_time = parse_time(line.split(":", 1)[1])
+        elif line.startswith("#EXT-X-MAP:"):
+            attrs = parse_attributes(line.split(":", 1)[1])
+            if "URI" in attrs:
+                init_url = urljoin(base_url, attrs["URI"])
         elif line.startswith("#EXT-X-DATERANGE:"):
             attrs = parse_attributes(line.split(":", 1)[1])
             if is_ad_daterange(attrs) and "START-DATE" in attrs:
@@ -153,6 +159,7 @@ def parse_media(text: str, base_url: str = "") -> MediaPlaylist:
                     url=urljoin(base_url, line),
                     duration=pending_duration,
                     start_time=start_time,
+                    init_url=init_url,
                 )
             )
             next_time = (

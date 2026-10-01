@@ -151,20 +151,20 @@ def download_segment(
     return False
 
 
-def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
+def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> Path | None:
     """Delete empty recordings, optionally remux .mp4frag -> .mp4 (stream copy, no re-encode)."""
-    if not ts_path.exists():
+    if not mp4frag_path.exists():
         return None
-    if ts_path.stat().st_size == 0:
-        ts_path.unlink()
+    if mp4frag_path.stat().st_size == 0:
+        mp4frag_path.unlink()
         return None
     if not remux:
-        return ts_path
+        return mp4frag_path
     if not shutil.which("ffmpeg"):
-        log.warning("ffmpeg not found, keeping %s", ts_path.name)
-        return ts_path
+        log.warning("ffmpeg not found, keeping %s", mp4frag_path.name)
+        return mp4frag_path
 
-    mp4_path = ts_path.with_suffix(".mp4")
+    mp4_path = mp4frag_path.with_suffix(".mp4")
     log.info("Remuxing to %s", mp4_path.name)
     result = subprocess.run(
         [
@@ -175,7 +175,7 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
             "-dts_delta_threshold",
             "1",
             "-i",
-            str(ts_path),
+            str(mp4frag_path),
             "-c",
             "copy",
             "-movflags",
@@ -185,11 +185,11 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
         check=False,
     )
     if result.returncode != 0:
-        log.warning("Remux failed, keeping %s", ts_path.name)
+        log.warning("Remux failed, keeping %s", mp4frag_path.name)
         mp4_path.unlink(missing_ok=True)
-        return ts_path
-    if not keep_ts:
-        ts_path.unlink()
+        return mp4frag_path
+    if not keep_mp4frag:
+        mp4frag_path.unlink()
     return mp4_path
 
 
@@ -233,6 +233,7 @@ def record_stream(
     last_seq = -1
     failures = 0
     in_ad = False
+    written_init_url: str | None = None
     saved = skipped_ads = lost = 0
 
     try:
@@ -296,6 +297,17 @@ def record_stream(
                     if in_ad:
                         log.info("Ad break over")
                         in_ad = False
+
+                    if seg.init_url and seg.init_url != written_init_url:
+                        if download_segment(session, seg.init_url, out):
+                            written_init_url = seg.init_url
+                        else:
+                            lost += 1
+                            log.warning(
+                                "Could not fetch init segment, skipping segment %d",
+                                seg.sequence,
+                            )
+                            continue
 
                     if download_segment(session, seg.url, out):
                         saved += 1
