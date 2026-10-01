@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+from mypy.types_utils import NoneType
 
 import hls
 from hls import Variant
@@ -145,7 +146,8 @@ def finalize(ts_path: Path, remux: bool, keep_ts: bool) -> Path | None:
     log.info("Remuxing to %s", mp4_path.name)
     result = subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-i", str(ts_path),
-         "-c", "copy", "-movflags", "+faststart", str(mp4_path)]
+         "-c", "copy", "-movflags", "+faststart", str(mp4_path)],
+        check=False,
     )
     if result.returncode != 0:
         log.warning("Remux failed, keeping %s", ts_path.name)
@@ -183,7 +185,7 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    ts_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.ts"
+    ts_path = folder / f"{channel}_{datetime.now(tz=NoneType):%Y-%m-%d_%H-%M-%S}.ts"
     log.info("Recording %s [%s, %s] -> %s", channel, variant.name, variant.resolution or "audio", ts_path)
 
     playlist_url = variant.url
