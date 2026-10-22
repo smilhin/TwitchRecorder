@@ -4,7 +4,7 @@ A simple Python script that automatically records a Twitch channel when it goes 
 
 The script periodically checks the channel using the Twitch Helix API. When the channel goes live, it obtains the HLS stream playlist, selects the requested quality, and downloads the stream segments until the stream ends.
 
-Recordings are saved as `.ts` files and are automatically remuxed to `.mp4` when `ffmpeg` is available.
+Recordings are saved as `.mp4frag` files and are automatically remuxed to `.mp4` when `ffmpeg` is available.
 
 ## Features
 
