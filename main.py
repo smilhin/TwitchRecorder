@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import time
+import threading
 
 import requests
 from dotenv import load_dotenv
@@ -13,7 +14,7 @@ print("""
     In order to use this instrument you have to do following steps:
 
     Create an .env file IN THE SAME FOLDER AS THE SCRIPT with following information (you will also find the template in the .env-template file on GitHub):
-    CHANNEL_NAME=channel_name...
+    CHANNEL_NAMES=channel_name1,channel_name2,...
     CLIENT_ID=client_id...
     CLIENT_SECRET=client_secret...
     VIDEO_QUALITY=...   (best, worst, source, audio_only, or a name like 720p60)
@@ -39,7 +40,12 @@ if not load_dotenv():
 # Global Constants
 POLL_INTERVAL = 30  # seconds
 
-CHANNEL_NAME = os.getenv("CHANNEL_NAME")
+CHANNEL_NAMES = [str for str in os.getenv("CHANNEL_NAMES").replace(" ", "").split(",") if str]
+if not CHANNEL_NAMES:
+    print(
+        "\033[31mNo channel names detected >~<. Please follow the instructions and create one WITH VALID CREDENTIALS\033[0m"
+    )
+    sys.exit(1)
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 VIDEO_QUALITY = os.getenv("VIDEO_QUALITY", "best")
@@ -91,16 +97,36 @@ class TwitchAPI:
             return data[0] if data else None
         return None
 
+stop = threading.Event()
 
-def on_live(stream):
+def on_live(stream, channel_name: str, output_dir: str = "recordings"):
     """
     Called when the channel is live. Blocks until the recording is finished,
     then returns so the main loop can start listening again.
 
     `stream` has keys such as: title, game_name, started_at, viewer_count.
     """
-    print(f"{CHANNEL_NAME} is live: {stream['title']} (since {stream['started_at']})")
-    recorder.record_stream(CHANNEL_NAME, quality=VIDEO_QUALITY)
+    print(f"{channel_name} is live: {stream['title']} (since {stream['started_at']})")
+    recorder.record_stream(channel_name, output_dir=output_dir, quality=VIDEO_QUALITY, stop_event=stop)
+
+def loop(api: TwitchAPI, output_dir: str):
+    errors = 0
+    while not stop.is_set():
+        try:
+            stream = api.get_stream()
+            errors = 0
+        except requests.RequestException as e:
+            errors += 1
+            delay = min(POLL_INTERVAL * 2**errors, 600)
+            print(f"API error: {e}. Retrying in {delay}s")
+            stop.wait(delay)
+            continue
+
+        if stream:
+            on_live(stream, api.channel_name, output_dir)
+            stop.wait(10)
+        else:
+            stop.wait(POLL_INTERVAL)
 
 
 def main():
@@ -110,31 +136,29 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    api = TwitchAPI(CHANNEL_NAME, CLIENT_ID, CLIENT_SECRET)
-    errors = 0
+    output_dir = input("Enter output directory (default: directory of the executable): ") or "recordings"
+
     print("Listening... :3")
+    threads = []
+    for channel_name in CHANNEL_NAMES:
+        api = TwitchAPI(channel_name, CLIENT_ID, CLIENT_SECRET)
+        threads.append(threading.Thread(target=loop, args=(api, output_dir)))
+        print(f"Streamer: {channel_name}")
 
-    while True:
-        try:
-            stream = api.get_stream()
-            errors = 0
-        except requests.RequestException as e:
-            errors += 1
-            delay = min(POLL_INTERVAL * 2**errors, 600)
-            print(f"API error: {e}. Retrying in {delay}s")
-            time.sleep(delay)
-            continue
 
-        if stream:
-            on_live(stream)
-            time.sleep(10)
-        else:
-            time.sleep(POLL_INTERVAL)
+    for thread in threads:
+        thread.start()
+
+    try:
+        for t in threads:
+            t.join()
+    except KeyboardInterrupt:
+        print("Stopping, finishing recordings...")
+        stop.set()
+        for t in threads:
+            t.join()
+        sys.exit(0)
 
 
 if __name__ == "__main__":
-    try:
         main()
-    except KeyboardInterrupt:
-        print("Stopped")
-    sys.exit(0)
