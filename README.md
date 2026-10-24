@@ -1,6 +1,6 @@
 # TwitchRecorder
 
-A simple Python script that automatically records a Twitch channel when it goes live.
+Python script that automatically records a Twitch channel when it goes live.
 
 The script periodically checks the channel using the Twitch Helix API. When the channel goes live, it obtains the HLS stream playlist, selects the requested quality, and downloads the stream segments until the stream ends.
 
@@ -21,7 +21,7 @@ Recordings are saved as `.mp4frag` files and are automatically remuxed to `.mp4`
 
 ## Requirements
 
-* Python 3.10 or newer
+* Python 3.11 or newer
 * `ffmpeg` (optional, required for automatic `.mp4` output)
 * A Twitch application with a Client ID and Client Secret
 
@@ -55,7 +55,7 @@ You can check it with:
 ffmpeg -version
 ```
 
-If `ffmpeg` is not available, the recorder will keep the original `.ts` recording instead.
+If `ffmpeg` is not available, the recorder will keep the original `.mp4frag` recording instead.
 
 ## Twitch Application
 
@@ -84,7 +84,7 @@ Create an `.env` file in the same folder as the script.
 You can use `.env-template` as a starting point:
 
 ```env
-CHANNEL_NAME=channel_name
+CHANNEL_NAMES=channel1,channel2,...
 CLIENT_ID=your_client_id
 CLIENT_SECRET=your_client_secret
 VIDEO_QUALITY=best
@@ -94,7 +94,7 @@ VIDEO_QUALITY=best
 
 | Variable        | Description                              |
 | --------------- | ---------------------------------------- |
-| `CHANNEL_NAME`  | Twitch channel to monitor                |
+| `CHANNEL_NAMES`  | Twitch channels to monitor                |
 | `CLIENT_ID`     | Client ID of your Twitch application     |
 | `CLIENT_SECRET` | Client Secret of your Twitch application |
 | `VIDEO_QUALITY` | Quality to record                        |
@@ -144,9 +144,9 @@ recordings/
 
 The timestamp in the filename is the time when the recording started.
 
-The recorder initially writes the stream to a `.ts` file.
+The recorder initially writes the stream to a `.mp4frag` file.
 
-If `ffmpeg` is available, the `.ts` file is remuxed to `.mp4` using stream copy:
+If `ffmpeg` is available, the `.mp4frag` file is remuxed to `.mp4` using stream copy:
 
 ```text
 -c copy
@@ -154,9 +154,92 @@ If `ffmpeg` is available, the `.ts` file is remuxed to `.mp4` using stream copy:
 
 This means the audio and video streams are not re-encoded.
 
-The `.ts` file is removed after a successful remux.
+The `.mp4frag` file is removed after a successful remux.
 
-If `ffmpeg` is unavailable or the remux fails, the `.ts` file is kept instead.
+If `ffmpeg` is unavailable or the remux fails, the `.mp4frag` file is kept instead.
+
+## Docker
+
+The recorder can run in a Docker container, which is handy for a server. The container uses the Linux binary, so you don't need Python installed on the host.
+
+### Setup
+
+1. Download the `twitch-recorder-linux-x64` artifact from the latest GitHub Actions run, rename it to `twitch-recorder`, and put it next to the `Dockerfile`.
+2. Create the `.env` file as described in [Configuration](#configuration).
+3. Start the container:
+
+```bash
+docker compose up -d --build
+```
+
+`Dockerfile`:
+
+```dockerfile
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY twitch-recorder /app/TwitchRecorder
+RUN chmod +x /app/TwitchRecorder
+
+CMD ["/app/TwitchRecorder"]
+```
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  recorder:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./.env:/app/.env
+      - ./recordings:/app/recordings
+```
+
+Recordings end up in `./recordings` on the host, so they survive container restarts and rebuilds.
+
+Useful commands:
+
+```bash
+docker compose logs -f recorder   # follow the logs
+docker compose restart recorder   # restart after changing .env
+docker compose down               # stop and remove the container
+```
+
+> **Note:** The binary must be built against a glibc that is not newer than the one in the image (Ubuntu 24.04). The binaries from GitHub Actions work. A binary built on a rolling distro such as Arch may fail with `GLIBC_x.xx not found`.
+
+### Cleaning up old recordings
+
+Recordings take up a lot of space. `cleanup.sh` deletes recordings older than 14 days and removes empty channel folders:
+
+```bash
+#!/bin/bash
+
+DIR="path/to/recordings"
+
+find "$DIR" -type f -mtime +14 -delete
+
+find "$DIR" -mindepth 1 -type d -empty -delete
+```
+
+Set `DIR` to your recordings folder, make the script executable, and run it by hand or on a schedule:
+
+```bash
+chmod +x cleanup.sh
+./cleanup.sh
+```
+
+To run it every night at 04:00, add this line with `crontab -e`:
+
+```cron
+0 4 * * * /path/to/cleanup.sh
+```
+
+Deleted files can't be recovered. To check what would be deleted first, run `find "$DIR" -type f -mtime +14` without `-delete`.
 
 ## How it works
 
@@ -184,7 +267,7 @@ Download new HLS segments
 Stream ends
        |
        v
-Remux .ts -> .mp4
+Remux .mp4frag -> .mp4
 ```
 
 The recorder uses Twitch's web player's GraphQL endpoint to obtain a playback access token and then requests the HLS playlist from Twitch's streaming infrastructure.
