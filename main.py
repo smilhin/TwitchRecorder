@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 import sys
 import threading
 import time
@@ -118,6 +119,11 @@ def on_live(stream, channel_name: str, output_dir: str = "recordings"):
     )
 
 
+def shutdown(signum, frame):
+    print("Stopping, finishing recordings...", flush=True)
+    stop.set()
+
+
 def loop(api: TwitchAPI, output_dir: str):
     errors = 0
     while not stop.is_set():
@@ -145,6 +151,9 @@ def main():
         datefmt="%H:%M:%S",
     )
 
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)  # docker stop
+
     print("Listening... :3")
     threads = []
     for channel_name in CHANNEL_NAMES:
@@ -155,15 +164,8 @@ def main():
     for thread in threads:
         thread.start()
 
-    try:
-        for t in threads:
-            t.join()
-    except KeyboardInterrupt:
-        print("Stopping, finishing recordings...")
-        stop.set()
-        for t in threads:
-            t.join()
-        sys.exit(0)
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
