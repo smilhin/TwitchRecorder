@@ -11,7 +11,7 @@ def parse_attributes(text: str) -> dict[str, str]:
 
 
 def parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 def _clean_lines(text: str) -> list[str]:

@@ -223,7 +223,7 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"  # noqa
+    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,
