@@ -16,6 +16,7 @@ import logging
 import random
 import shutil
 import subprocess
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -200,11 +201,13 @@ def record_stream(
     skip_ads: bool = True,
     remux: bool = True,
     keep_mp4frag: bool = False,
+    stop_event: threading.Event | None = None,
 ) -> Path | None:
     """
     Record a live channel until the stream ends. Blocks. Returns the output path,
     or None if nothing was recorded.
     """
+    stop_event = stop_event or threading.Event()
     channel = channel.lower()
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
@@ -220,7 +223,7 @@ def record_stream(
 
     folder = Path(output_dir) / channel
     folder.mkdir(parents=True, exist_ok=True)
-    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"  # noqa
+    mp4frag_path = folder / f"{channel}_{datetime.now():%Y-%m-%d_%H-%M-%S}.mp4frag"
     log.info(
         "Recording %s [%s, %s] -> %s",
         channel,
@@ -238,7 +241,7 @@ def record_stream(
 
     try:
         with open(mp4frag_path, "wb") as out:
-            while True:
+            while not stop_event.is_set():
                 try:
                     r = session.get(playlist_url, timeout=10)
                     r.raise_for_status()
@@ -278,6 +281,8 @@ def record_stream(
                     last_seq = playlist.media_sequence - 1
 
                 for seg in playlist.segments:
+                    if stop_event.is_set():
+                        break
                     if seg.sequence <= last_seq:
                         continue
                     if last_seq != -1 and seg.sequence > last_seq + 1:
@@ -319,7 +324,7 @@ def record_stream(
                     log.info("Stream ended (#EXT-X-ENDLIST)")
                     break
 
-                time.sleep(min(max(playlist.target_duration / 2, 0.5), 2.0))
+                stop_event.wait(min(max(playlist.target_duration / 2, 0.5), 2.0))
     finally:
         log.info(
             "Done: %d segments saved, %d ad segments skipped, %d lost",
