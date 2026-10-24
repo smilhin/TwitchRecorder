@@ -18,6 +18,7 @@ print("""
     CLIENT_ID=client_id...
     CLIENT_SECRET=client_secret...
     VIDEO_QUALITY=...   (best, worst, source, audio_only, or a name like 720p60)
+    #OUTPUT_DIR=... # Optional, defaults to current directory
 
     Go to https://dev.twitch.tv/console and log in with your Twitch account 
     (Twitch requires 2FA to be enabled on the account to register apps).
@@ -51,6 +52,7 @@ if not CHANNEL_NAMES:
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 VIDEO_QUALITY = os.getenv("VIDEO_QUALITY", "best")
+OUTPUT_DIR = os.path.expanduser(os.getenv("OUTPUT_DIR", "recordings"))
 
 
 class TwitchAPI:
@@ -143,16 +145,11 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    output_dir = (
-        input("Enter output directory (default: directory of the executable): ")
-        or "recordings"
-    )
-
     print("Listening... :3")
     threads = []
     for channel_name in CHANNEL_NAMES:
         api = TwitchAPI(channel_name, CLIENT_ID, CLIENT_SECRET)
-        threads.append(threading.Thread(target=loop, args=(api, output_dir)))
+        threads.append(threading.Thread(target=loop, args=(api, OUTPUT_DIR)))
         print(f"Streamer: {channel_name}")
 
     for thread in threads:
