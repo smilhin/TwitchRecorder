@@ -40,7 +40,9 @@ if not load_dotenv():
 # Global Constants
 POLL_INTERVAL = 30  # seconds
 
-CHANNEL_NAMES = [str for str in os.getenv("CHANNEL_NAMES").replace(" ", "").split(",") if str]
+CHANNEL_NAMES = [
+    str for str in os.getenv("CHANNEL_NAMES").replace(" ", "").split(",") if str
+]
 if not CHANNEL_NAMES:
     print(
         "\033[31mNo channel names detected >~<. Please follow the instructions and create one WITH VALID CREDENTIALS\033[0m"
@@ -97,7 +99,9 @@ class TwitchAPI:
             return data[0] if data else None
         return None
 
+
 stop = threading.Event()
+
 
 def on_live(stream, channel_name: str, output_dir: str = "recordings"):
     """
@@ -107,7 +111,10 @@ def on_live(stream, channel_name: str, output_dir: str = "recordings"):
     `stream` has keys such as: title, game_name, started_at, viewer_count.
     """
     print(f"{channel_name} is live: {stream['title']} (since {stream['started_at']})")
-    recorder.record_stream(channel_name, output_dir=output_dir, quality=VIDEO_QUALITY, stop_event=stop)
+    recorder.record_stream(
+        channel_name, output_dir=output_dir, quality=VIDEO_QUALITY, stop_event=stop
+    )
+
 
 def loop(api: TwitchAPI, output_dir: str):
     errors = 0
@@ -136,7 +143,10 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    output_dir = input("Enter output directory (default: directory of the executable): ") or "recordings"
+    output_dir = (
+        input("Enter output directory (default: directory of the executable): ")
+        or "recordings"
+    )
 
     print("Listening... :3")
     threads = []
@@ -144,7 +154,6 @@ def main():
         api = TwitchAPI(channel_name, CLIENT_ID, CLIENT_SECRET)
         threads.append(threading.Thread(target=loop, args=(api, output_dir)))
         print(f"Streamer: {channel_name}")
-
 
     for thread in threads:
         thread.start()
@@ -161,4 +170,4 @@ def main():
 
 
 if __name__ == "__main__":
-        main()
+    main()
