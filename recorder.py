@@ -152,7 +152,9 @@ def download_segment(
     return False
 
 
-def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> tuple[Path, list[Path]] | None:
+def finalize(
+    mp4frag_path: Path, remux: bool, keep_mp4frag: bool
+) -> tuple[Path, list[Path]] | None:
     """Delete empty recordings, optionally remux .mp4frag -> .mp4 (stream copy, no re-encode)."""
     if not mp4frag_path.exists():
         return None
@@ -205,9 +207,9 @@ def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> tuple[Path,
             "default=nokey=1:noprint_wrappers=1",
             str(mp4_path),
         ],
-        capture_output = True,
-        text = True,
-        check = False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     try:
         frames_count = int(frames_count_result.stdout.strip())
@@ -217,7 +219,14 @@ def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> tuple[Path,
 
     thumbnails: list[Path] = []
     if frames_count > 0:
-        frames = sorted({1 % frames_count, frames_count // 4, frames_count // 2, frames_count * 2 // 3})
+        frames = sorted(
+            {
+                1 % frames_count,
+                frames_count // 4,
+                frames_count // 2,
+                frames_count * 2 // 3,
+            }
+        )
         expr = "+".join(rf"eq(n\,{n})" for n in frames)
         pattern = mp4_path.with_name(f"{mp4_path.stem}_thumb_%d.png")
 
