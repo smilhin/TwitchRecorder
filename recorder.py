@@ -268,7 +268,7 @@ def record_stream(
     remux: bool = True,
     keep_mp4frag: bool = False,
     stop_event: threading.Event | None = None,
-) -> Path | None:
+) -> tuple[Path, list[Path]] | None:
     """
     Record a live channel until the stream ends. Blocks. Returns the output path,
     or None if nothing was recorded.
