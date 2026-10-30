@@ -152,7 +152,7 @@ def download_segment(
     return False
 
 
-def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> Path | None:
+def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> tuple[Path, list[Path]] | None:
     """Delete empty recordings, optionally remux .mp4frag -> .mp4 (stream copy, no re-encode)."""
     if not mp4frag_path.exists():
         return None
@@ -160,10 +160,10 @@ def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> Path | None
         mp4frag_path.unlink()
         return None
     if not remux:
-        return mp4frag_path
+        return mp4frag_path, []
     if not shutil.which("ffmpeg"):
         log.warning("ffmpeg not found, keeping %s", mp4frag_path.name)
-        return mp4frag_path
+        return mp4frag_path, []
 
     mp4_path = mp4frag_path.with_suffix(".mp4")
     log.info("Remuxing to %s", mp4_path.name)
@@ -188,10 +188,67 @@ def finalize(mp4frag_path: Path, remux: bool, keep_mp4frag: bool) -> Path | None
     if result.returncode != 0:
         log.warning("Remux failed, keeping %s", mp4frag_path.name)
         mp4_path.unlink(missing_ok=True)
-        return mp4frag_path
+        return mp4frag_path, []
+
+    # frames count
+    frames_count_result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-count_frames",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            str(mp4_path),
+        ],
+        capture_output = True,
+        text = True,
+        check = False,
+    )
+    try:
+        frames_count = int(frames_count_result.stdout.strip())
+    except ValueError:
+        log.warning("Could not read frame count")
+        frames_count = 0
+
+    thumbnails: list[Path] = []
+    if frames_count > 0:
+        frames = sorted({1 % frames_count, frames_count // 4, frames_count // 2, frames_count * 2 // 3})
+        expr = "+".join(rf"eq(n\,{n})" for n in frames)
+        pattern = mp4_path.with_name(f"{mp4_path.stem}_thumb_%d.png")
+
+        thumb_result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(mp4_path),
+                "-vf",
+                f"select='{expr}'",
+                "-fps_mode",
+                "passthrough",
+                str(pattern),
+            ],
+            check=False,
+        )
+        if thumb_result.returncode != 0:
+            log.warning("Thumbnail generation failed")
+        else:
+            thumbnails = [
+                p
+                for i in range(1, len(frames) + 1)
+                if (p := mp4_path.with_name(f"{mp4_path.stem}_thumb_{i}.png")).exists()
+            ]
+
     if not keep_mp4frag:
         mp4frag_path.unlink()
-    return mp4_path
+    return mp4_path, thumbnails
 
 
 def record_stream(
@@ -334,6 +391,8 @@ def record_stream(
         )
         result = finalize(mp4frag_path, remux, keep_mp4frag)
         if result:
-            log.info("Saved %s", result)
+            log.info("Saved %s", result[0])
+            if result[1]:
+                log.info("Saved thumbnail %s", result[1])
 
     return result
