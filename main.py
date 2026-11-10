@@ -4,10 +4,10 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from pathlib import Path
 
 import recorder
 
