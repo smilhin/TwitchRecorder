@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -102,6 +103,26 @@ class TwitchAPI:
             return data[0] if data else None
         return None
 
+    def get_pfp(self):
+        r = requests.get(
+            "https://api.twitch.tv/helix/users",
+            params={"login": self.channel_name},
+            headers={
+                "Client-ID": self.client_id,
+                "Authorization": f"Bearer {self._get_token()}",
+            },
+            timeout=10,
+        )
+
+        if not r.ok:
+            raise requests.HTTPError(
+                f"Twitch user lookup failed ({r.status_code}): {r.text}",
+                response=r,
+            )
+        data = r.json()["data"]
+
+        return data[0]["profile_image_url"] if data else None
+
 
 stop = threading.Event()
 
@@ -158,6 +179,21 @@ def main():
     threads = []
     for channel_name in CHANNEL_NAMES:
         api = TwitchAPI(channel_name, CLIENT_ID, CLIENT_SECRET)
+        try:
+            url = api.get_pfp()
+        except requests.RequestException as e:
+            print(f"Could not fetch profile image for {channel_name}: {e}")
+            url = None
+
+        if url:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            channel_dir = Path(OUTPUT_DIR) / channel_name.lower()
+            channel_dir.mkdir(parents=True, exist_ok=True)
+            with open(channel_dir / f"{channel_name}_pfp.jpg", "wb") as image:
+                image.write(response.content)
+
         threads.append(threading.Thread(target=loop, args=(api, OUTPUT_DIR)))
         print(f"Streamer: {channel_name}")
 
